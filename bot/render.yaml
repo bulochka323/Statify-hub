@@ -1,0 +1,47 @@
+services:
+  # Telegram Bot + API Server
+  - type: web
+    name: statify-hub-bot
+    runtime: python
+    pythonVersion: 3.11
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py & uvicorn api.handlers:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: RENDER_HOST
+        value: 0.0.0.0
+      - key: RENDER_PORT
+        value: 10000
+    envVarRefs:
+      - envVar: BOT_TOKEN
+        serviceId: statify-hub-bot
+      - envVar: SPOTIFY_CLIENT_ID
+        serviceId: statify-hub-bot
+      - envVar: SPOTIFY_CLIENT_SECRET
+        serviceId: statify-hub-bot
+      - envVar: DATABASE_URL
+        serviceId: statify-hub-postgres
+      - envVar: REDIS_URL
+        serviceId: statify-hub-redis
+
+  # PostgreSQL Database
+  - type: pserv
+    name: statify-hub-postgres
+    runtime: postgres15
+    plan: free
+    ipAllowList: []
+    envVars:
+      - key: POSTGRES_USER
+        value: postgres
+      - key: POSTGRES_PASSWORD
+        value: ${POSTGRES_PASSWORD}
+      - key: POSTGRES_DB
+        value: statify_hub
+
+  # Redis Cache
+  - type: redis
+    name: statify-hub-redis
+    plan: free
+    ipAllowList: []
