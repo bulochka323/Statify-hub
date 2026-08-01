@@ -1,0 +1,14 @@
+A:\statify hub\statify hub\statify hub\bin\Debug\net10.0\statify hub.exe
+A:\statify hub\statify hub\statify hub\bin\Debug\net10.0\statify hub.deps.json
+A:\statify hub\statify hub\statify hub\bin\Debug\net10.0\statify hub.runtimeconfig.json
+A:\statify hub\statify hub\statify hub\bin\Debug\net10.0\statify hub.dll
+A:\statify hub\statify hub\statify hub\bin\Debug\net10.0\statify hub.pdb
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.GeneratedMSBuildEditorConfig.editorconfig
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.AssemblyInfoInputs.cache
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.AssemblyInfo.cs
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.csproj.CoreCompileInputs.cache
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.dll
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\refint\statify hub.dll
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.pdb
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\statify hub.genruntimeconfig.cache
+A:\statify hub\statify hub\statify hub\obj\Debug\net10.0\ref\statify hub.dll
