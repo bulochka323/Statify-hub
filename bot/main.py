@@ -3,6 +3,7 @@ import logging
 import os
 from aiohttp import web
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramConflictError
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config.logger import setup_logging
@@ -112,14 +113,8 @@ async def main():
     runner = web.AppRunner(web_app)
     await runner.setup()
     
-    # Render передає системний порт у змінній PORT (або за замовчуванням беремо RENDER_PORT / 8080)
-    port = int(os.getenv("PORT", os.getenv("RENDER_PORT", 8080)))
-    
-    # Якщо з Render прийшов системний 10000, примусово змінюємо на 8080 щоб уникнути конфлікту
-    if port == 10000:
-        port = 8080
-
-    host = os.getenv("RENDER_HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 10000))
+    host = "0.0.0.0"
     server_started = False
 
     for try_port in [port, 8080, 8000]:
@@ -138,19 +133,39 @@ async def main():
     if not server_started:
         logger.error("Could not bind web server to any port!")
 
-    # Запуск polling
+    # Скидання вебхуків перед стартом
+    logger.info("Clearing webhook and drop pending updates...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(2)
+
+    # Запуск polling з обробкою TelegramConflictError
     logger.info("Bot started!")
-    try:
-        await dp.start_polling(bot)
-    except Exception as e:
-        logger.error(f"Bot error: {e}")
-    finally:
-        # Закриття ресурсів
-        await runner.cleanup()
-        await close_db()
-        await spotify_scheduler.shutdown()
-        await bot.session.close()
-        logger.info("Bot stopped!")
+    retry_count = 0
+    max_retries = 5
+
+    while retry_count < max_retries:
+        try:
+            await dp.start_polling(bot)
+            break
+        except TelegramConflictError:
+            retry_count += 1
+            logger.warning(
+                f"Telegram Conflict Error (instance already running). Retrying in 5 seconds... ({retry_count}/{max_retries})"
+            )
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"Bot error: {e}")
+            break
+        finally:
+            if retry_count >= max_retries:
+                logger.error("Max retries reached due to Telegram Conflict. Stopping bot.")
+
+    # Закриття ресурсів
+    await runner.cleanup()
+    await close_db()
+    await spotify_scheduler.shutdown()
+    await bot.session.close()
+    logger.info("Bot stopped!")
 
 
 if __name__ == "__main__":
