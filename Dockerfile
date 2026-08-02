@@ -14,10 +14,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копіюємо весь проєкт
 COPY . .
 
-# 1. Авто-перейменування конфліктної папки types
+# 1. Авто-створення папки logs, щоб логер не падав
+RUN mkdir -p /app/logs /app/bot/logs
+
+# 2. Авто-перейменування конфліктної папки types
 RUN if [ -d "bot/types" ]; then mv bot/types bot/app_types; fi
 
-# 2. Авто-фікс помилки Клода з 'from aiogram.filters import F'
+# 3. Авто-фікс імпорту F з aiogram
 RUN find bot/ -type f -name "*.py" -exec sed -i 's/from aiogram.filters import F/from aiogram import F/g' {} +
 
 # Налаштовуємо шляхи та запуск
