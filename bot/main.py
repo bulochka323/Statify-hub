@@ -108,35 +108,33 @@ async def main():
     logger.info("Starting scheduler...")
     spotify_scheduler.start()
 
-    # 🌐 Запуск веб-сервера для /callback
+    # 🌐 Запуск веб-сервера точно на порті, який вимагає Render
     web_app = setup_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
     
     port = int(os.getenv("PORT", 10000))
     host = "0.0.0.0"
-    server_started = False
-
-    for try_port in [port, 8080, 8000]:
+    
+    site = web.TCPSite(runner, host, port)
+    
+    # Спроби підключитися саме до вказаного PORT
+    for attempt in range(5):
         try:
-            site = web.TCPSite(runner, host, try_port)
             await site.start()
-            logger.info(f"Web server successfully started on {host}:{try_port}")
-            server_started = True
+            logger.info(f"Web server successfully started on {host}:{port}")
             break
         except OSError as e:
-            if e.errno == 98:
-                logger.warning(f"Port {try_port} is in use, trying next...")
+            if e.errno == 98:  # Address already in use
+                logger.warning(f"Port {port} in use, waiting for release... (attempt {attempt+1}/5)")
+                await asyncio.sleep(2)
             else:
                 raise e
 
-    if not server_started:
-        logger.error("Could not bind web server to any port!")
-
-    # Скидання вебхуків перед стартом
+    # Скидання підключень Telegram перед стартом
     logger.info("Clearing webhook and drop pending updates...")
     await bot.delete_webhook(drop_pending_updates=True)
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
 
     # Запуск polling з обробкою TelegramConflictError
     logger.info("Bot started!")
