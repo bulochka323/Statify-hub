@@ -8,14 +8,18 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy bot folder structure
-COPY bot/requirements.txt .
+# Copy requirements from bot folder
+COPY bot/requirements.txt ./requirements.txt
 
 # Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy entire bot code
-COPY bot/ .
+# Copy bot code INTO a subfolder (щоб не засмічувати корінь /app)
+COPY bot/ ./bot/
+
+# Switch working directory inside /app/bot
+WORKDIR /app/bot
 
 # Create logs directory
 RUN mkdir -p logs
