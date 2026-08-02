@@ -1,13 +1,13 @@
 FROM python:3.13-slim
 
-# Встановлюємо системні компілятори (gcc, build-essential) для збірки C/Rust залежностей
+# Встановлюємо системні компілятори для збірки C/Rust залежностей
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Оновлюємо pip, setuptools та wheel для підтягування готових wheels
+# Оновлюємо pip, setuptools та wheel
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Копіюємо requirements.txt з папки bot/
@@ -17,5 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копіюємо весь код проєкту
 COPY . .
 
-# Запуск бота (якщо головний файл у папці bot, наприклад bot/main.py — скоригуй шлях)
-CMD ["python", "-m", "bot.main"]
+# Прописуємо шляхи для Python, щоб він бачив імпорти і з кореня, і з папки bot/
+ENV PYTHONPATH=/app/bot:/app
+
+# Запуск бота
+CMD ["python", "bot/main.py"]
