@@ -14,9 +14,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копіюємо весь проєкт
 COPY . .
 
-# МАГІЯ DOCKER: автоматично перейменовуємо конфліктну папку 'types', 
-# щоб Python не плутав її зі стандартною бібліотекою
+# 1. Авто-перейменування конфліктної папки types
 RUN if [ -d "bot/types" ]; then mv bot/types bot/app_types; fi
+
+# 2. Авто-фікс помилки Клода з 'from aiogram.filters import F'
+RUN find bot/ -type f -name "*.py" -exec sed -i 's/from aiogram.filters import F/from aiogram import F/g' {} +
 
 # Налаштовуємо шляхи та запуск
 ENV PYTHONPATH=/app/bot:/app
