@@ -11,10 +11,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 COPY bot/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копіюємо весь проєкт
 COPY . .
 
-# 1. Авто-створення папки logs, щоб логер не падав
+# 1. Авто-створення папки logs
 RUN mkdir -p /app/logs /app/bot/logs
 
 # 2. Авто-перейменування конфліктної папки types
@@ -23,7 +22,7 @@ RUN if [ -d "bot/types" ]; then mv bot/types bot/app_types; fi
 # 3. Авто-фікс імпорту F з aiogram
 RUN find bot/ -type f -name "*.py" -exec sed -i 's/from aiogram.filters import F/from aiogram import F/g' {} +
 
-# Налаштовуємо шляхи та запуск
 ENV PYTHONPATH=/app/bot:/app
 
-CMD ["python", "bot/main.py"]
+# Запускаємо фоновий веб-сервер для Render + самого бота
+CMD python -m http.server 10000 & python bot/main.py
