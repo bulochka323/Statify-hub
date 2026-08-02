@@ -13,16 +13,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# 1. Авто-створення папки logs
+# 1. Створення папки logs
 RUN mkdir -p /app/logs /app/bot/logs
 
-# 2. Авто-перейменування конфліктної папки types
+# 2. Перейменування types
 RUN if [ -d "bot/types" ]; then mv bot/types bot/app_types; fi
 
-# 3. Авто-фікс імпорту F з aiogram
+# 3. Фікс імпорту F з aiogram
 RUN find bot/ -type f -name "*.py" -exec sed -i 's/from aiogram.filters import F/from aiogram import F/g' {} +
+
+# 4. ФІКС ПОМИЛКИ МІДДЛВЕРА (заміна event.update_id на event.message_id)
+RUN find bot/ -type f -name "*.py" -exec sed -i 's/event.update_id/event.message_id/g' {} +
 
 ENV PYTHONPATH=/app/bot:/app
 
-# Запускаємо фоновий веб-сервер для Render + самого бота
-CMD ["sh", "-c", "python -m http.server 10000 & exec python bot/main.py"]
+CMD ["python", "bot/main.py"]
