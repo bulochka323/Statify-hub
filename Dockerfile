@@ -18,4 +18,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Запуск бота (якщо головний файл у папці bot, наприклад bot/main.py — скоригуй шлях)
-CMD ["python", "bot/main.py"]
+CMD ["python", "-m", "bot.main"]
