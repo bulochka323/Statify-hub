@@ -25,4 +25,4 @@ RUN find bot/ -type f -name "*.py" -exec sed -i 's/from aiogram.filters import F
 ENV PYTHONPATH=/app/bot:/app
 
 # Запускаємо фоновий веб-сервер для Render + самого бота
-CMD python -m http.server 10000 & python bot/main.py
+CMD ["sh", "-c", "python -m http.server 10000 & exec python bot/main.py"]
