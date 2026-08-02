@@ -27,4 +27,4 @@ RUN find bot/ -type f -name "*.py" -exec sed -i 's/event.update_id/event.message
 
 ENV PYTHONPATH=/app/bot:/app
 
-CMD ["python", "bot/main.py"]
+CMD ["sh", "-c", "python -m http.server $PORT & exec python bot/main.py"]
