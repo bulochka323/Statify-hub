@@ -36,7 +36,6 @@ async def spotify_callback_handler(request):
 
     if code:
         logger.info("Successfully received authorization code from Spotify!")
-        # Можна додати красиву сторінку з подякою
         html_response = """
         <!DOCTYPE html>
         <html>
@@ -70,7 +69,7 @@ def setup_web_app():
     """Створення та налаштування aiohttp додатка."""
     app = web.Application()
     app.router.add_get("/", health_check)
-    app.router.add_get("/callback", spotify_callback_handler)  # 👈 Головний роут для Spotify!
+    app.router.add_get("/callback", spotify_callback_handler)
     return app
 
 
@@ -108,16 +107,29 @@ async def main():
     logger.info("Starting scheduler...")
     spotify_scheduler.start()
 
-    # 🌐 Запуск веб-сервера для /callback
+    # 🌐 Запуск веб-сервера для /callback з обробкою зайнятого порту
     web_app = setup_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
     
-    # Render передає PORT через Environment Variables (за замовчуванням 10000 або 8080)
-    port = int(os.getenv("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logger.info(f"Web server successfully started on port {port}")
+    port = int(os.getenv("PORT", 10000))
+    server_started = False
+
+    for try_port in [port, 8080, 8000]:
+        try:
+            site = web.TCPSite(runner, "0.0.0.0", try_port)
+            await site.start()
+            logger.info(f"Web server successfully started on port {try_port}")
+            server_started = True
+            break
+        except OSError as e:
+            if e.errno == 98:
+                logger.warning(f"Port {try_port} is in use, trying next...")
+            else:
+                raise e
+
+    if not server_started:
+        logger.error("Could not bind web server to any port!")
 
     # Запуск polling
     logger.info("Bot started!")
