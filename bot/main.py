@@ -1,6 +1,7 @@
 import asyncio
 import logging
-
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -17,8 +18,67 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+# ----------------------------------------------------
+# 🌐 Обробник Callback від Spotify
+# ----------------------------------------------------
+async def spotify_callback_handler(request):
+    """Приймає code від Spotify після входу користувача."""
+    code = request.query.get("code")
+    error = request.query.get("error")
+
+    if error:
+        logger.error(f"Spotify authorization error: {error}")
+        return web.Response(
+            text="<h2>❌ Помилка авторизації Spotify</h2><p>Будь ласка, поверніться в Telegram та спробуйте ще раз.</p>",
+            content_type="text/html",
+            status=400
+        )
+
+    if code:
+        logger.info("Successfully received authorization code from Spotify!")
+        # Можна додати красиву сторінку з подякою
+        html_response = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Statify Hub - Авторизація</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; background-color: #121212; color: #fff; }
+                .card { background: #1e1e1e; display: inline-block; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+                h1 { color: #1DB954; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>✅ Успішна авторизація!</h1>
+                <p>Акаунт Spotify підключено. Тепер ви можете закрити цю вкладку та повернутися до бота в Telegram.</p>
+            </div>
+        </body>
+        </html>
+        """
+        return web.Response(text=html_response, content_type="text/html", status=200)
+
+    return web.Response(text="Missing code parameter", status=400)
+
+
+async def health_check(request):
+    """Хелсчек для Render."""
+    return web.Response(text="Statify Hub is running!")
+
+
+def setup_web_app():
+    """Створення та налаштування aiohttp додатка."""
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/callback", spotify_callback_handler)  # 👈 Головний роут для Spotify!
+    return app
+
+
+# ----------------------------------------------------
+# 🚀 Основний запуск
+# ----------------------------------------------------
 async def main():
-    """Основна функція запуску боту."""
+    """Основна функція запуску боту та веб-сервера."""
 
     # Ініціалізація БД
     logger.info("Initializing database...")
@@ -30,23 +90,34 @@ async def main():
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
-    # Додавання middleware для бази даних (автоматично передає 'session' у хендлери)
+    # Middleware для бази даних
     @dp.update.outer_middleware()
     async def db_session_middleware(handler, event, data):
         async for session in get_session():
             data["session"] = session
             return await handler(event, data)
 
-    # Додавання middleware для логування
+    # Middleware для логування
     dp.message.middleware(LoggingMiddleware())
     dp.callback_query.middleware(LoggingMiddleware())
 
-    # Додавання маршрутів
+    # Маршрути бота
     dp.include_routers(user_router, menu_router)
 
     # Запуск планувальника
     logger.info("Starting scheduler...")
     spotify_scheduler.start()
+
+    # 🌐 Запуск веб-сервера для /callback
+    web_app = setup_web_app()
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    
+    # Render передає PORT через Environment Variables (за замовчуванням 10000 або 8080)
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Web server successfully started on port {port}")
 
     # Запуск polling
     logger.info("Bot started!")
@@ -55,7 +126,8 @@ async def main():
     except Exception as e:
         logger.error(f"Bot error: {e}")
     finally:
-        # Закриття БД та планувальника
+        # Закриття ресурсів
+        await runner.cleanup()
         await close_db()
         await spotify_scheduler.shutdown()
         await bot.session.close()
