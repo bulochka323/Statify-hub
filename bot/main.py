@@ -1,4 +1,4 @@
-import asyncio
+\import asyncio
 import logging
 import os
 from aiohttp import web
@@ -108,7 +108,7 @@ async def main():
     logger.info("Starting scheduler...")
     spotify_scheduler.start()
 
-    # 🌐 Запуск веб-сервера точно на порті, який вимагає Render
+    # 🌐 Запуск веб-сервера точно на порті від Render
     web_app = setup_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
@@ -116,20 +116,24 @@ async def main():
     port = int(os.getenv("PORT", 10000))
     host = "0.0.0.0"
     
-    site = web.TCPSite(runner, host, port)
-    
-    # Спроби підключитися саме до вказаного PORT
-    for attempt in range(5):
+    server_started = False
+    for attempt in range(1, 6):
         try:
+            # Створюємо новий TCPSite на кожну спробу, щоб уникнути RuntimeError
+            site = web.TCPSite(runner, host, port)
             await site.start()
             logger.info(f"Web server successfully started on {host}:{port}")
+            server_started = True
             break
         except OSError as e:
             if e.errno == 98:  # Address already in use
-                logger.warning(f"Port {port} in use, waiting for release... (attempt {attempt+1}/5)")
+                logger.warning(f"Port {port} is in use, retrying in 2 seconds... (attempt {attempt}/5)")
                 await asyncio.sleep(2)
             else:
                 raise e
+
+    if not server_started:
+        logger.error(f"Could not bind web server to port {port} after 5 attempts!")
 
     # Скидання підключень Telegram перед стартом
     logger.info("Clearing webhook and drop pending updates...")
