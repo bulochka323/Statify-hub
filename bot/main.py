@@ -107,19 +107,26 @@ async def main():
     logger.info("Starting scheduler...")
     spotify_scheduler.start()
 
-    # 🌐 Запуск веб-сервера для /callback з обробкою зайнятого порту
+    # 🌐 Запуск веб-сервера для /callback
     web_app = setup_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
     
-    port = int(os.getenv("PORT", 10000))
+    # Render передає системний порт у змінній PORT (або за замовчуванням беремо RENDER_PORT / 8080)
+    port = int(os.getenv("PORT", os.getenv("RENDER_PORT", 8080)))
+    
+    # Якщо з Render прийшов системний 10000, примусово змінюємо на 8080 щоб уникнути конфлікту
+    if port == 10000:
+        port = 8080
+
+    host = os.getenv("RENDER_HOST", "0.0.0.0")
     server_started = False
 
     for try_port in [port, 8080, 8000]:
         try:
-            site = web.TCPSite(runner, "0.0.0.0", try_port)
+            site = web.TCPSite(runner, host, try_port)
             await site.start()
-            logger.info(f"Web server successfully started on port {try_port}")
+            logger.info(f"Web server successfully started on {host}:{try_port}")
             server_started = True
             break
         except OSError as e:
