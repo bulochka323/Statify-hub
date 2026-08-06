@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from config.logger import logger
 from database.repository import (
     ArtistRepository,
@@ -74,13 +73,59 @@ class UserService:
 class SpotifyService:
     """Сервіс для роботи зі Spotify."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: Optional[AsyncSession] = None):
         self.session = session
         self.spotify = SpotifyAPI()
+        self.user_repo = UserRepository()
         self.track_repo = TrackRepository()
         self.history_repo = UserTrackHistoryRepository()
         self.artist_repo = ArtistRepository()
         self.artist_stats_repo = UserArtistStatsRepository()
+
+    def get_auth_url(self, user_id: int) -> str:
+        """Сформувати посилання для OAuth авторизації з передачею state (user_id)."""
+        if hasattr(self.spotify, "get_auth_url"):
+            return self.spotify.get_auth_url(state=str(user_id))
+        return ""
+
+    async def finish_auth(self, user_id: int, code: str, session: Optional[AsyncSession] = None) -> bool:
+        """Обміняти авторизаційний код на токени та зберегти Spotify профіль у БД."""
+        db_session = session or self.session
+        try:
+            # 1. Отримуємо токени від Spotify
+            tokens = await self.spotify.get_tokens(code)
+            if not tokens or "access_token" not in tokens:
+                logger.error(f"Failed to fetch tokens for user {user_id}")
+                return False
+
+            access_token = tokens["access_token"]
+            refresh_token = tokens.get("refresh_token", "")
+
+            # 2. Отримуємо дані профілю Spotify
+            user_profile = await self.spotify.get_user_profile(access_token)
+            spotify_id = user_profile.get("id", "") if user_profile else ""
+            display_name = user_profile.get("display_name", "Spotify User") if user_profile else "Spotify User"
+            
+            images = user_profile.get("images", []) if user_profile else []
+            profile_image_url = images[0].get("url") if images else None
+
+            # 3. Зберігаємо в БД (якщо є сесія)
+            if db_session:
+                user_service = UserService(db_session)
+                await user_service.link_spotify(
+                    telegram_id=user_id,
+                    spotify_id=spotify_id,
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    display_name=display_name,
+                    profile_image_url=profile_image_url
+                )
+            logger.info(f"Successfully finished Spotify auth for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error in finish_auth for user {user_id}: {e}", exc_info=True)
+            return False
 
     async def sync_recently_played(
         self,
@@ -89,6 +134,10 @@ class SpotifyService:
         limit: int = 50
     ) -> bool:
         """Синхронізувати недавно прослухані треки."""
+        if not self.session:
+            logger.error("Session is required for sync_recently_played")
+            return False
+
         try:
             data = await self.spotify.get_recently_played(access_token, limit)
             if not data or "items" not in data:
@@ -188,3 +237,7 @@ class SpotifyService:
         except Exception as e:
             logger.error(f"Error getting top items: {e}")
             return None
+
+
+# Екземпляр за замовчуванням для виклику загальних методів (наприклад, finish_auth / get_auth_url)
+spotify_service = SpotifyService()
