@@ -1,9 +1,11 @@
 import os
 import logging
 from aiohttp import web
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import TelegramObject
+from typing import Callable, Dict, Any, Awaitable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ----------------------------------------------------
@@ -16,14 +18,15 @@ logging.basicConfig(
 logger = logging.getLogger("statify_hub")
 
 # ----------------------------------------------------
-# 📂 Безпечні імпорти модулів проєкту
+# 📂 Безпечні імпорти БД та Сервісів
 # ----------------------------------------------------
-# БД та додаткові сервіси
+async_session_maker = None
+
 try:
-    from db import init_db
+    from db import init_db, async_session_maker
 except ImportError:
     try:
-        from bot.db import init_db
+        from bot.db import init_db, async_session_maker
     except ImportError:
         init_db = None
 
@@ -35,10 +38,33 @@ except ImportError:
     except ImportError:
         spotify_service = None
 
-# Динамічно імпортуємо всі доступні роутери з проєкту
+# ----------------------------------------------------
+# 🛠 Middleware для прокидання 'session' у хендлери
+# ----------------------------------------------------
+class DbSessionMiddleware(BaseMiddleware):
+    def __init__(self, session_pool):
+        super().__init__()
+        self.session_pool = session_pool
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        if not self.session_pool:
+            data["session"] = None
+            return await handler(event, data)
+
+        async with self.session_pool() as session:
+            data["session"] = session
+            return await handler(event, data)
+
+# ----------------------------------------------------
+# 📂 Динамічний імпорт всіх роутерів проєкту
+# ----------------------------------------------------
 routers_to_include = []
 
-# Імпорт menu_handlers
 try:
     from handlers.menu_handlers import router as menu_router
     routers_to_include.append(menu_router)
@@ -47,9 +73,8 @@ except ImportError:
         from menu_handlers import router as menu_router
         routers_to_include.append(menu_router)
     except ImportError:
-        logger.warning("menu_handlers.py не знайдено або не містить 'router'")
+        logger.warning("menu_handlers.py не знайдено")
 
-# Імпорт user_handlers
 try:
     from handlers.user_handlers import router as user_router
     routers_to_include.append(user_router)
@@ -58,27 +83,16 @@ except ImportError:
         from user_handlers import router as user_router
         routers_to_include.append(user_router)
     except ImportError:
-        logger.warning("user_handlers.py не знайдено або не містить 'router'")
-
-# Імпорт стандартного handlers (якщо існує)
-try:
-    from handlers import router as base_router
-    routers_to_include.append(base_router)
-except ImportError:
-    try:
-        from handlers.handlers import router as base_router
-        routers_to_include.append(base_router)
-    except ImportError:
-        pass
+        logger.warning("user_handlers.py не знайдено")
 
 # ----------------------------------------------------
-# 🔐 Змінні середовища (Environment Variables)
+# 🔐 Змінні середовища
 # ----------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
 
 # ----------------------------------------------------
-# 🤖 Ініціалізація Telegram Бота та Диспетчера
+# 🤖 Ініціалізація Бота та Диспетчера
 # ----------------------------------------------------
 bot = Bot(
     token=BOT_TOKEN,
@@ -86,25 +100,26 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-# Підключаємо всі знайдені роутери в диспетчер
+# РЕЄСТРУЄМО MIDDLEWARE ДЛЯ СЕСІЙ БД
+dp.update.outer_middleware(DbSessionMiddleware(async_session_maker))
+
+# Підключаємо всі роутери
 for r in routers_to_include:
     dp.include_router(r)
 
 # ----------------------------------------------------
-# 🌐 Web Server (aiohttp) & Spotify Callback
+# 🌐 Web Server & Spotify Callback
 # ----------------------------------------------------
 async def health_check(request):
-    """Health check endpoint для Render"""
     return web.Response(text="Statify Hub is running!", status=200)
 
 async def spotify_callback_handler(request):
-    """Обробник веб-хука/авторизації від Spotify API"""
     code = request.rel_url.query.get("code")
     error = request.rel_url.query.get("error")
-    state = request.rel_url.query.get("state")  # Передається user_id
+    state = request.rel_url.query.get("state")
 
     if error:
-        logger.error(f"Spotify authorization error: {error}")
+        logger.error(f"Spotify auth error: {error}")
         return web.Response(text="<h2>❌ Помилка авторизації Spotify</h2>", content_type="text/html", status=400)
 
     if code and state:
@@ -112,51 +127,22 @@ async def spotify_callback_handler(request):
             user_id = int(state)
             bot_instance: Bot = request.app["bot"]
 
-            # Завершуємо авторизацію через ваш spotify_service
             if spotify_service and hasattr(spotify_service, "finish_auth"):
                 await spotify_service.finish_auth(user_id=user_id, code=code)
 
-            # Сповіщаємо користувача в Telegram
             await bot_instance.send_message(
                 chat_id=user_id,
                 text="🎉 <b>Акаунт Spotify успішно підключено!</b>\n\nТепер вам доступні всі функції бота.",
             )
-            logger.info(f"Successfully authenticated Spotify for user_id={user_id}")
+            logger.info(f"Spotify connected for user {user_id}")
 
             html_response = """
             <!DOCTYPE html>
             <html lang="uk">
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Statify Hub</title>
-                <style>
-                    body {
-                        background-color: #121212;
-                        color: #1DB954;
-                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        height: 100vh;
-                        margin: 0;
-                    }
-                    .box {
-                        background: #181818;
-                        padding: 40px;
-                        border-radius: 12px;
-                        text-align: center;
-                        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-                    }
-                    h1 { margin-bottom: 10px; }
-                    p { color: #b3b3b3; }
-                </style>
-            </head>
-            <body>
-                <div class="box">
-                    <h1>✅ Успішна авторизація!</h1>
-                    <p>Поверніться до Telegram-бота для використання сервісу.</p>
-                </div>
+            <head><meta charset="utf-8"><title>Statify Hub</title></head>
+            <body style="background:#121212;color:#1DB954;text-align:center;padding-top:100px;font-family:sans-serif;">
+                <h1>✅ Успішна авторизація!</h1>
+                <p style="color:#fff;">Можете закрити це вікно та повернутися до бота в Telegram.</p>
             </body>
             </html>
             """
@@ -176,7 +162,7 @@ def setup_web_app():
     return app
 
 # ----------------------------------------------------
-# 🚀 Головна точка входу (Main)
+# 🚀 Точка входу
 # ----------------------------------------------------
 async def main():
     logger.info("Initializing database...")
@@ -186,24 +172,20 @@ async def main():
             logger.info("Database initialized!")
         except Exception as db_err:
             logger.error(f"Database init error: {db_err}")
-    else:
-        logger.info("No DB init function detected, skipping...")
 
     logger.info("Starting scheduler...")
     scheduler = AsyncIOScheduler()
     scheduler.start()
 
-    # Запуск aiohttp сервера для підтримки порту Render
     web_app = setup_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logger.info(f"Web server successfully started on port {PORT}")
+    logger.info(f"Web server started on port {PORT}")
 
-    # Скидаємо старі вебхуки та запускаємо polling
     await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Bot is polling...")
+    logger.info("Bot started polling...")
     try:
         await dp.start_polling(bot)
     finally:

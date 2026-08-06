@@ -1,23 +1,37 @@
+import logging
+from typing import Optional
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from states.states import UserState
 from keyboards.inline import start_keyboard, main_menu, language_keyboard
 from services.spotify_service import UserService, SpotifyService
 from spotify.spotify_api import SpotifyAPI
 from localization.languages import get_text, LANGUAGES
-from config.logger import logger
+
+# Якщо logger не завантажиться з конфігу, використовуємо стандартний
+try:
+    from config.logger import logger
+except ImportError:
+    logger = logging.getLogger(__name__)
 
 router = Router()
 spotify_api = SpotifyAPI()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
+async def cmd_start(message: Message, state: FSMContext, session: Optional[AsyncSession] = None):
     """Обробка команди /start."""
     try:
+        if not session:
+            logger.warning("DbSessionMiddleware не передав session у cmd_start")
+            await message.answer("❌ Сталась помилка БД. Спробуйте пізніше.")
+            return
+
         user_service = UserService(session)
         user = await user_service.register_user(
             telegram_id=message.from_user.id,
@@ -25,12 +39,8 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
         )
 
         # Якщо мова не встановлена, показуємо вибір мови
-        if not user.language:
-            welcome_text = f"""
-{get_text('en', 'welcome_title')}
-
-{get_text('en', 'select_language')}
-            """
+        if not user or not user.language:
+            welcome_text = f"{get_text('en', 'welcome_title')}{get_text('en', 'select_language')}\n"
             await message.answer(welcome_text, reply_markup=language_keyboard())
             await state.set_state(UserState.SELECT_LANGUAGE)
         else:
@@ -45,9 +55,13 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
 
 
 @router.callback_query(F.data.startswith("lang_"))
-async def handle_language_selection(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def handle_language_selection(callback: CallbackQuery, state: FSMContext, session: Optional[AsyncSession] = None):
     """Обробка вибору мови."""
     try:
+        if not session:
+            await callback.answer("❌ Помилка з'єднання з БД", show_alert=True)
+            return
+
         language_code = callback.data.split("_")[1]  # lang_uk -> uk
 
         user_service = UserService(session)
@@ -76,9 +90,13 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
 
 
 @router.callback_query(F.data == "select_language")
-async def handle_select_language(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def handle_select_language(callback: CallbackQuery, state: FSMContext, session: Optional[AsyncSession] = None):
     """Обробка кнопки вибору мови."""
     try:
+        if not session:
+            await callback.answer("❌ Помилка з'єднання з БД", show_alert=True)
+            return
+
         user_service = UserService(session)
         user = await user_service.get_user(callback.from_user.id)
         language = user.language if user else "en"
@@ -95,9 +113,13 @@ async def handle_select_language(callback: CallbackQuery, state: FSMContext, ses
 
 
 @router.callback_query(F.data == "auth_spotify")
-async def handle_spotify_auth(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def handle_spotify_auth(callback: CallbackQuery, state: FSMContext, session: Optional[AsyncSession] = None):
     """Обробка кнопки авторизації Spotify."""
     try:
+        if not session:
+            await callback.answer("❌ Помилка з'єднання з БД", show_alert=True)
+            return
+
         user_service = UserService(session)
         user = await user_service.get_user(callback.from_user.id)
         language = user.language if user else "en"
@@ -117,19 +139,26 @@ async def handle_spotify_auth(callback: CallbackQuery, state: FSMContext, sessio
 
     except Exception as e:
         logger.error(f"Error in handle_spotify_auth: {e}")
-        user_service = UserService(session)
-        user = await user_service.get_user(callback.from_user.id)
-        language = user.language if user else "en"
-        error_text = get_text(language, "error")
-        await callback.message.answer(error_text)
+        if session:
+            user_service = UserService(session)
+            user = await user_service.get_user(callback.from_user.id)
+            language = user.language if user else "en"
+            error_text = get_text(language, "error")
+            await callback.message.answer(error_text)
+        else:
+            await callback.message.answer("❌ Помилка авторизації.")
     finally:
         await callback.answer()
 
 
 @router.callback_query(F.data == "menu_home")
-async def handle_main_menu(callback: CallbackQuery, session: AsyncSession):
+async def handle_main_menu(callback: CallbackQuery, session: Optional[AsyncSession] = None):
     """Обробка кнопки головного меню."""
     try:
+        if not session:
+            await callback.answer("❌ Помилка з'єднання з БД", show_alert=True)
+            return
+
         user_service = UserService(session)
         user = await user_service.get_user(callback.from_user.id)
         language = user.language if user else "en"
@@ -144,11 +173,7 @@ async def handle_main_menu(callback: CallbackQuery, session: AsyncSession):
             await callback.answer()
             return
 
-        menu_text = f"""
-🏠 <b>Головне Меню</b>
-
-👤 <b>{user.display_name}</b>
-"""
+        menu_text = f"🏠 <b>Головне Меню</b>\n\n👤 <b>{user.display_name}</b>"
         await callback.message.edit_text(
             menu_text,
             reply_markup=main_menu(language),
