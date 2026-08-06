@@ -1,6 +1,9 @@
+import logging
 from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from config.logger import logger
+from config.settings import settings
 from database.repository import (
     ArtistRepository,
     TrackRepository,
@@ -9,6 +12,9 @@ from database.repository import (
     UserTrackHistoryRepository,
 )
 from spotify.spotify_api import SpotifyAPI
+from keyboards.inline import main_menu
+from localization.languages import get_text
+from aiogram import Bot
 
 
 class UserService:
@@ -110,9 +116,10 @@ class SpotifyService:
             profile_image_url = images[0].get("url") if images else None
 
             # 3. Зберігаємо в БД (якщо є сесія)
+            user = None
             if db_session:
                 user_service = UserService(db_session)
-                await user_service.link_spotify(
+                user = await user_service.link_spotify(
                     telegram_id=user_id,
                     spotify_id=spotify_id,
                     access_token=access_token,
@@ -120,7 +127,24 @@ class SpotifyService:
                     display_name=display_name,
                     profile_image_url=profile_image_url
                 )
+
             logger.info(f"Successfully finished Spotify auth for user {user_id}")
+
+            # 4. Відправляємо сповіщення в Telegram разом із Головним Меню
+            try:
+                bot = Bot(token=settings.bot_token)
+                lang = user.language if (user and hasattr(user, "language") and user.language) else "uk"
+                
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=f"🎉 <b>{get_text(lang, 'spotify_connected') if hasattr(get_text, 'spotify_connected') else 'Акаунт Spotify успішно підключено!'}</b>\n\nОсь твоє головне меню:",
+                    reply_markup=main_menu(lang),
+                    parse_mode="HTML"
+                )
+                await bot.session.close()
+            except Exception as send_err:
+                logger.warning(f"Failed to send success menu message to user {user_id}: {send_err}")
+
             return True
 
         except Exception as e:
@@ -149,7 +173,7 @@ class SpotifyService:
                     continue
 
                 # Зберегти трек
-                track = await self.track_repo.create_or_get_track(
+                await self.track_repo.create_or_get_track(
                     self.session,
                     spotify_id=track_data["id"],
                     name=track_data.get("name", "Unknown"),
@@ -170,7 +194,7 @@ class SpotifyService:
 
                 # Зберегти артистів
                 for artist_data in track_data.get("artists", []):
-                    artist = await self.artist_repo.create_or_get_artist(
+                    await self.artist_repo.create_or_get_artist(
                         self.session,
                         spotify_id=artist_data["id"],
                         name=artist_data.get("name", "Unknown"),
