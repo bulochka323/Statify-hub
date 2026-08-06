@@ -1,17 +1,17 @@
 import logging
 from typing import Optional
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from states.states import UserState
-from keyboards.inline import start_keyboard, main_menu, language_keyboard
-from services.spotify_service import UserService, SpotifyService
+from keyboards.inline import language_keyboard, main_menu, start_keyboard
+from localization.languages import LANGUAGES, get_text
+from services.spotify_service import SpotifyService, UserService
 from spotify.spotify_api import SpotifyAPI
-from localization.languages import get_text, LANGUAGES
+from states.states import UserState
 
 # Якщо logger не завантажиться з конфігу, використовуємо стандартний
 try:
@@ -65,7 +65,6 @@ async def handle_language_selection(callback: CallbackQuery, state: FSMContext, 
         language_code = callback.data.split("_")[1]  # lang_uk -> uk
 
         user_service = UserService(session)
-        # Оновлюємо мову, передаючи telegram_id та назву поля kwargs
         await user_service.update_user(
             telegram_id=callback.from_user.id,
             language=language_code
@@ -124,7 +123,8 @@ async def handle_spotify_auth(callback: CallbackQuery, state: FSMContext, sessio
         user = await user_service.get_user(callback.from_user.id)
         language = user.language if user else "en"
 
-        auth_url = spotify_api.get_authorize_url()
+        # ✅ Прокидаємо telegram_id у state
+        auth_url = spotify_api.get_authorize_url(state=str(callback.from_user.id))
 
         auth_text = get_text(language, "auth_text").format(auth_url=auth_url)
 
