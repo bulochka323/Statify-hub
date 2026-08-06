@@ -24,8 +24,9 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------
 async def spotify_callback_handler(request):
     """Приймає code від Spotify після входу користувача."""
-    code = request.query.get("code")
-    error = request.query.get("error")
+    # Отримуємо значення з query string
+    code = request.rel_url.query.get("code")
+    error = request.rel_url.query.get("error")
 
     if error:
         logger.error(f"Spotify authorization error: {error}")
@@ -36,22 +37,24 @@ async def spotify_callback_handler(request):
         )
 
     if code:
-        logger.info("Successfully received authorization code from Spotify!")
+        logger.info(f"Successfully received authorization code from Spotify! Code length: {len(code)}")
         html_response = """
         <!DOCTYPE html>
         <html>
         <head>
             <title>Statify Hub - Авторизація</title>
+            <meta charset="utf-8">
             <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; background-color: #121212; color: #fff; }
-                .card { background: #1e1e1e; display: inline-block; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-                h1 { color: #1DB954; }
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding-top: 80px; background-color: #121212; color: #fff; }
+                .card { background: #1e1e1e; display: inline-block; padding: 40px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 400px; }
+                h1 { color: #1DB954; margin-bottom: 10px; }
+                p { color: #b3b3b3; line-height: 1.5; }
             </style>
         </head>
         <body>
             <div class="card">
                 <h1>✅ Успішна авторизація!</h1>
-                <p>Акаунт Spotify підключено. Тепер ви можете закрити цю вкладку та повернутися до бота в Telegram.</p>
+                <p>Акаунт Spotify підключено. Поверніться до бота в Telegram для продовження.</p>
             </div>
         </body>
         </html>
@@ -69,8 +72,12 @@ async def health_check(request):
 def setup_web_app():
     """Створення та налаштування aiohttp додатка."""
     app = web.Application()
+    
+    # Реєстрація роутів
     app.router.add_get("/", health_check)
     app.router.add_get("/callback", spotify_callback_handler)
+    app.router.add_get("/callback/", spotify_callback_handler)  # На випадок слішу наприкінці
+    
     return app
 
 
@@ -113,7 +120,6 @@ async def main():
     runner = web.AppRunner(web_app)
     await runner.setup()
     
-    # Використовуємо PORT з оточення або 8080 за замовчуванням
     port = int(os.getenv("PORT", 8080))
     host = "0.0.0.0"
     
@@ -129,7 +135,7 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.sleep(1)
 
-    # Запуск polling з обробкою TelegramConflictError
+    # Запуск polling
     logger.info("Bot started!")
     retry_count = 0
     max_retries = 5
