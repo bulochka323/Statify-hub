@@ -1,23 +1,24 @@
+import urllib.parse
+from typing import Any, Dict, List, Optional
 import aiohttp
-from typing import Optional, Dict, Any
-from config.settings import settings
 from config.logger import logger
+from config.settings import settings
 
 
 class SpotifyAPI:
     """Клієнт для роботи зі Spotify API."""
-    
+
     BASE_URL = "https://api.spotify.com/v1"
     AUTH_URL = "https://accounts.spotify.com/api/token"
     AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
-    
+
     def __init__(self):
         self.client_id = settings.spotify_client_id
         self.client_secret = settings.spotify_client_secret
         self.redirect_uri = settings.spotify_redirect_uri
-    
-    def get_authorize_url(self) -> str:
-        """Отримати URL для авторизації."""
+
+    def get_authorize_url(self, state: Optional[str] = None) -> str:
+        """Отримати URL для авторизації з обов'язковою передачею state (telegram_id)."""
         scopes = [
             "user-read-private",
             "user-read-email",
@@ -26,18 +27,25 @@ class SpotifyAPI:
             "user-library-read",
             "user-read-currently-playing",
         ]
-        
+
         params = {
             "client_id": self.client_id,
             "response_type": "code",
             "redirect_uri": self.redirect_uri,
             "scope": " ".join(scopes),
-            "show_dialog": "true"
+            "show_dialog": "true",
         }
-        
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+
+        if state:
+            params["state"] = str(state)
+
+        query_string = urllib.parse.urlencode(params)
         return f"{self.AUTHORIZE_URL}?{query_string}"
-    
+
+    def get_auth_url(self, state: Optional[str] = None) -> str:
+        """Аліас для сумісності."""
+        return self.get_authorize_url(state=state)
+
     async def get_access_token(self, code: str) -> Optional[Dict[str, Any]]:
         """Отримати access token за кодом."""
         try:
@@ -48,18 +56,23 @@ class SpotifyAPI:
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
             }
-            
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.AUTH_URL, data=data) as response:
                     if response.status == 200:
                         return await response.json()
                     else:
-                        logger.error(f"Failed to get token: {response.status}")
+                        error_text = await response.text()
+                        logger.error(f"Failed to get token: {response.status} - {error_text}")
                         return None
         except Exception as e:
             logger.error(f"Error getting access token: {e}")
             return None
-    
+
+    async def get_tokens(self, code: str) -> Optional[Dict[str, Any]]:
+        """Аліас для сумісності."""
+        return await self.get_access_token(code)
+
     async def refresh_access_token(self, refresh_token: str) -> Optional[Dict[str, Any]]:
         """Оновити access token."""
         try:
@@ -69,7 +82,7 @@ class SpotifyAPI:
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
             }
-            
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.AUTH_URL, data=data) as response:
                     if response.status == 200:
@@ -80,7 +93,7 @@ class SpotifyAPI:
         except Exception as e:
             logger.error(f"Error refreshing token: {e}")
             return None
-    
+
     async def get_current_user(self, access_token: str) -> Optional[Dict[str, Any]]:
         """Отримати інформацію про поточного користувача."""
         try:
@@ -95,7 +108,11 @@ class SpotifyAPI:
         except Exception as e:
             logger.error(f"Error getting user: {e}")
             return None
-    
+
+    async def get_user_profile(self, access_token: str) -> Optional[Dict[str, Any]]:
+        """Аліас для get_current_user."""
+        return await self.get_current_user(access_token)
+
     async def get_currently_playing(self, access_token: str) -> Optional[Dict[str, Any]]:
         """Отримати трек, що зараз грає."""
         try:
@@ -115,7 +132,7 @@ class SpotifyAPI:
         except Exception as e:
             logger.error(f"Error getting currently playing: {e}")
             return None
-    
+
     async def get_recently_played(
         self,
         access_token: str,
@@ -139,7 +156,7 @@ class SpotifyAPI:
         except Exception as e:
             logger.error(f"Error getting recently played: {e}")
             return None
-    
+
     async def get_top_items(
         self,
         access_token: str,
@@ -165,7 +182,7 @@ class SpotifyAPI:
         except Exception as e:
             logger.error(f"Error getting top items: {e}")
             return None
-    
+
     async def get_track(self, access_token: str, track_id: str) -> Optional[Dict[str, Any]]:
         """Отримати інформацію про трек."""
         try:
@@ -183,11 +200,11 @@ class SpotifyAPI:
         except Exception as e:
             logger.error(f"Error getting track: {e}")
             return None
-    
+
     async def get_tracks_audio_features(
         self,
         access_token: str,
-        track_ids: list[str]
+        track_ids: List[str]
     ) -> Optional[Dict[str, Any]]:
         """Отримати аудіо характеристики треків."""
         try:
