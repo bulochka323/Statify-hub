@@ -1,5 +1,7 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from aiohttp import web
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.enums import ParseMode
@@ -7,6 +9,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.types import TelegramObject
 from typing import Callable, Dict, Any, Awaitable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+# Додаємо корінь проєкту та папку bot до sys.path для гарантії імпорту
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE_DIR))
+sys.path.insert(0, str(BASE_DIR.parent))
 
 # ----------------------------------------------------
 # 📝 Налаштування логування
@@ -18,27 +25,44 @@ logging.basicConfig(
 logger = logging.getLogger("statify_hub")
 
 # ----------------------------------------------------
-# 📂 Імпорт бази даних (з імпортом async_session)
+# 📂 Імпорт бази даних (перевіряємо абсолютно всі шляхи)
 # ----------------------------------------------------
 init_db = None
 close_db = None
 async_session = None
 
+# Варіант 1: database/db.py
 try:
-    from db import init_db, close_db, async_session
+    from database.db import init_db, close_db, async_session
+    logger.info("Успішно імпортовано БД з 'database.db'")
 except ImportError:
+    # Варіант 2: db.py у корені або bot/
     try:
-        from bot.db import init_db, close_db, async_session
+        from db import init_db, close_db, async_session
+        logger.info("Успішно імпортовано БД з 'db'")
     except ImportError:
-        logger.error("❌ Не вдалося знайти файл db.py!")
+        # Варіант 3: bot.db або bot.database.db
+        try:
+            from bot.database.db import init_db, close_db, async_session
+            logger.info("Успішно імпортовано БД з 'bot.database.db'")
+        except ImportError:
+            try:
+                from bot.db import init_db, close_db, async_session
+                logger.info("Успішно імпортовано БД з 'bot.db'")
+            except ImportError as err:
+                logger.error(f"❌ Не вдалося знайти файл бази даних! Помилка: {err}")
 
+# Імпорт spotify_service
 try:
-    from spotify_service import spotify_service
+    from services.spotify_service import spotify_service
 except ImportError:
     try:
-        from bot.spotify_service import spotify_service
+        from spotify_service import spotify_service
     except ImportError:
-        spotify_service = None
+        try:
+            from bot.services.spotify_service import spotify_service
+        except ImportError:
+            spotify_service = None
 
 # ----------------------------------------------------
 # 🛠 Middleware для автоматичного створення сесії БД
@@ -69,16 +93,6 @@ class DbSessionMiddleware(BaseMiddleware):
 routers_to_include = []
 
 try:
-    from handlers.menu_handlers import router as menu_router
-    routers_to_include.append(menu_router)
-except ImportError:
-    try:
-        from menu_handlers import router as menu_router
-        routers_to_include.append(menu_router)
-    except ImportError:
-        logger.warning("menu_handlers.py не знайдено")
-
-try:
     from handlers.user_handlers import router as user_router
     routers_to_include.append(user_router)
 except ImportError:
@@ -87,6 +101,16 @@ except ImportError:
         routers_to_include.append(user_router)
     except ImportError:
         logger.warning("user_handlers.py не знайдено")
+
+try:
+    from handlers.menu_handlers import router as menu_router
+    routers_to_include.append(menu_router)
+except ImportError:
+    try:
+        from menu_handlers import router as menu_router
+        routers_to_include.append(menu_router)
+    except ImportError:
+        pass
 
 # ----------------------------------------------------
 # 🔐 Змінні середовища
@@ -103,10 +127,10 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-# РЕЄСТРУЄМО МІДЛВАРЬ З ТВОЇМ async_session
+# РЕЄСТРУЄМО МІДЛВАРЬ З async_session
 if async_session:
     dp.update.outer_middleware(DbSessionMiddleware(async_session))
-    logger.info("DbSessionMiddleware успішно підключено з async_session!")
+    logger.info("✅ DbSessionMiddleware успішно підключено!")
 else:
     logger.error("⚠️ async_session не знайдено, Middleware НЕ підключено!")
 
