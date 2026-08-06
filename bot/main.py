@@ -18,17 +18,19 @@ logging.basicConfig(
 logger = logging.getLogger("statify_hub")
 
 # ----------------------------------------------------
-# 📂 Безпечні імпорти БД та Сервісів
+# 📂 Імпорт бази даних (з імпортом async_session)
 # ----------------------------------------------------
-async_session_maker = None
+init_db = None
+close_db = None
+async_session = None
 
 try:
-    from db import init_db, async_session_maker
+    from db import init_db, close_db, async_session
 except ImportError:
     try:
-        from bot.db import init_db, async_session_maker
+        from bot.db import init_db, close_db, async_session
     except ImportError:
-        init_db = None
+        logger.error("❌ Не вдалося знайти файл db.py!")
 
 try:
     from spotify_service import spotify_service
@@ -39,7 +41,7 @@ except ImportError:
         spotify_service = None
 
 # ----------------------------------------------------
-# 🛠 Middleware для прокидання 'session' у хендлери
+# 🛠 Middleware для автоматичного створення сесії БД
 # ----------------------------------------------------
 class DbSessionMiddleware(BaseMiddleware):
     def __init__(self, session_pool):
@@ -53,6 +55,7 @@ class DbSessionMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         if not self.session_pool:
+            logger.error("DbSessionMiddleware: session_pool is None!")
             data["session"] = None
             return await handler(event, data)
 
@@ -61,7 +64,7 @@ class DbSessionMiddleware(BaseMiddleware):
             return await handler(event, data)
 
 # ----------------------------------------------------
-# 📂 Динамічний імпорт всіх роутерів проєкту
+# 📂 Імпорт роутерів проєкту
 # ----------------------------------------------------
 routers_to_include = []
 
@@ -100,10 +103,14 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-# РЕЄСТРУЄМО MIDDLEWARE ДЛЯ СЕСІЙ БД
-dp.update.outer_middleware(DbSessionMiddleware(async_session_maker))
+# РЕЄСТРУЄМО МІДЛВАРЬ З ТВОЇМ async_session
+if async_session:
+    dp.update.outer_middleware(DbSessionMiddleware(async_session))
+    logger.info("DbSessionMiddleware успішно підключено з async_session!")
+else:
+    logger.error("⚠️ async_session не знайдено, Middleware НЕ підключено!")
 
-# Підключаємо всі роутери
+# Підключаємо роутери
 for r in routers_to_include:
     dp.include_router(r)
 
@@ -169,7 +176,7 @@ async def main():
     if init_db:
         try:
             await init_db()
-            logger.info("Database initialized!")
+            logger.info("Database initialized successfully!")
         except Exception as db_err:
             logger.error(f"Database init error: {db_err}")
 
@@ -190,6 +197,8 @@ async def main():
         await dp.start_polling(bot)
     finally:
         await runner.cleanup()
+        if close_db:
+            await close_db()
 
 if __name__ == "__main__":
     import asyncio
