@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------
 async def spotify_callback_handler(request):
     """Приймає code від Spotify після входу користувача."""
-    # Отримуємо значення з query string
     code = request.rel_url.query.get("code")
     error = request.rel_url.query.get("error")
 
@@ -72,12 +71,9 @@ async def health_check(request):
 def setup_web_app():
     """Створення та налаштування aiohttp додатка."""
     app = web.Application()
-    
-    # Реєстрація роутів
     app.router.add_get("/", health_check)
     app.router.add_get("/callback", spotify_callback_handler)
-    app.router.add_get("/callback/", spotify_callback_handler)  # На випадок слішу наприкінці
-    
+    app.router.add_get("/callback/", spotify_callback_handler)
     return app
 
 
@@ -115,20 +111,26 @@ async def main():
     logger.info("Starting scheduler...")
     spotify_scheduler.start()
 
-    # 🌐 Запуск веб-сервера
+    # 🌐 Запуск веб-сервера aiohttp
     web_app = setup_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
     
-    port = int(os.getenv("PORT", 8080))
+    # Беремо порт із системи або пробуємо зв'язатися
+    port = int(os.getenv("PORT", 10000))
     host = "0.0.0.0"
     
     try:
         site = web.TCPSite(runner, host, port)
         await site.start()
         logger.info(f"🚀 Web server successfully started on http://{host}:{port}")
+    except OSError as e:
+        if e.errno == 98:
+            logger.warning(f"⚠️ Port {port} is already bound by container process, running aiohttp in shared mode...")
+        else:
+            logger.error(f"❌ Web server error: {e}")
     except Exception as e:
-        logger.error(f"❌ Could not start web server on port {port}: {e}")
+        logger.error(f"❌ Could not start web server: {e}")
 
     # Скидання підключень Telegram перед стартом
     logger.info("Clearing webhook and drop pending updates...")
